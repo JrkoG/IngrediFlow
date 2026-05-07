@@ -148,6 +148,44 @@ app.get('/api/inventory', async (req, res) => {
   }
 });
 
+// --- ADMIN ROUTE: RESTOCK INGREDIENT ---
+app.post('/api/inventory/restock', async (req, res) => {
+  try {
+    const { ingredient_id, amount } = req.body;
+    const addAmount = Number(amount);
+
+    // 1. Validate the input (block NaNs and negative numbers)
+    if (!ingredient_id || isNaN(addAmount) || addAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid ingredient ID or amount.' });
+    }
+
+    const ingRef = db.collection('ingredients').doc(ingredient_id);
+    const doc = await ingRef.get();
+
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Ingredient not found.' });
+    }
+
+    // 2. Calculate the new total
+    const currentStock = doc.data().current_stock || 0;
+    const newStock = currentStock + addAmount;
+
+    // 3. Update only the current_stock field in Firebase
+    await ingRef.update({
+      current_stock: newStock
+    });
+
+    res.status(200).json({ 
+      message: `Successfully added ${addAmount} to stock!`, 
+      newStock: newStock 
+    });
+
+  } catch (error) {
+    console.error("Error restocking:", error);
+    res.status(500).json({ error: 'Failed to restock ingredient.' });
+  }
+});
+
 // 4. Start the server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
