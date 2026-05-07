@@ -8,10 +8,24 @@ export default function Admin() {
   const [ingredients, setIngredients] = useState([{ name: '', quantity: '' }]);
   const [statusMessage, setStatusMessage] = useState('');
 
- // Function to update a specific row when typing
-const handleIngredientChange = (index: number, field: 'name' | 'quantity', value: string) => {
-  const newIngredients = [...ingredients];
-  newIngredients[index][field] = value;
+// 1. Define what an ingredient looks like
+interface IngredientRow {
+  ingredient_id: string;
+  quantity_needed: string;
+  [key: string]: string; // This tells TypeScript we can use dynamic "fields"
+}
+
+const handleIngredientChange = (index: number, field: string, value: string) => {
+  // 2. Explicitly tell TypeScript this is an array of IngredientRows
+  const newIngredients: IngredientRow[] = [...ingredients];
+  
+  if (field === 'quantity_needed') {
+    const numericValue = value.replace(/[^0-9]/g, '');
+    newIngredients[index][field] = numericValue; 
+  } else {
+    newIngredients[index][field] = value;
+  }
+  
   setIngredients(newIngredients);
 };
 

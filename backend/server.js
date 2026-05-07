@@ -24,47 +24,51 @@ app.get('/api/test', (req, res) => {
 // --- CORE TRANSACTION ROUTE ---
 app.post('/api/sales', async (req, res) => {
   try {
-    // 1. Get the data sent from the frontend (e.g., {"productId": "prod_001", "quantitySold": 1})
-    const { productId, quantitySold } = req.body;
+    const { product_id } = req.body;
+    console.log(`--- Processing Sale for Product: ${product_id} ---`);
 
-    // 2. Fetch the product from Firestore to get its "recipe" (BOM)
-    const productRef = db.collection('products').doc(productId);
-    const productDoc = await productRef.get();
+    const productDoc = await db.collection('products').doc(product_id).get();
+    if (!productDoc.exists) return res.status(404).json({ error: 'Product not found' });
 
-    if (!productDoc.exists) {
-      return res.status(404).json({ error: 'Product not found in database.' });
-    }
-
-    const productData = productDoc.data();
-    const recipe = productData.recipe; 
-
-    // 3. Set up a Firestore "Batch" (This updates all ingredients at the exact same time safely)
+    const recipe = productDoc.data().recipe || [];
     const batch = db.batch();
 
-    // 4. Loop through the recipe and calculate deductions
     for (const item of recipe) {
-      const ingredientRef = db.collection('ingredients').doc(item.ingredient_id);
-      
-      // Multiply recipe amount by how many cups were sold
-      const totalDeduction = item.quantity_needed * quantitySold; 
+      // 1. Skip if ID is missing or empty
+      if (!item.ingredient_id) {
+        console.log("⚠️ Skipping item: Missing ingredient_id");
+        continue;
+      }
 
-      // Tell Firebase to subtract this amount from the current_stock
-      batch.update(ingredientRef, {
-        current_stock: admin.firestore.FieldValue.increment(-totalDeduction)
-      });
+      // 2. Force quantity to a number and default to 0 if it's NaN
+      const qtyNeeded = Number(item.quantity_needed) || 0;
+      
+      if (qtyNeeded <= 0) {
+        console.log(`⚠️ Skipping ${item.ingredient_id}: Quantity is 0 or NaN`);
+        continue;
+      }
+
+      const ingRef = db.collection('ingredients').doc(item.ingredient_id);
+      const ingDoc = await ingRef.get();
+
+      if (ingDoc.exists) {
+        const currentStock = Number(ingDoc.data().current_stock) || 0;
+        
+        if (currentStock >= qtyNeeded) {
+          batch.update(ingRef, { current_stock: currentStock - qtyNeeded });
+          console.log(`✅ Deducting ${qtyNeeded} from ${ingDoc.data().name}`);
+        } else {
+          return res.status(400).json({ error: `Not enough ${ingDoc.data().name}` });
+        }
+      }
     }
 
-    // 5. Execute the batch update
     await batch.commit();
-
-    // 6. Send success message back to the React app
-    res.status(200).json({ 
-      message: `Success! Sold ${quantitySold}x ${productData.name} and deducted ingredients.` 
-    });
+    res.status(200).json({ message: 'Sale Successful!' });
 
   } catch (error) {
-    console.error("Error processing sale:", error);
-    res.status(500).json({ error: 'Something went wrong processing the sale.' });
+    console.error("CRITICAL ERROR IN SALES ROUTE:", error.message);
+    res.status(500).json({ error: 'Server crashed while processing sale.' });
   }
 });
 
@@ -183,6 +187,26 @@ app.post('/api/inventory/restock', async (req, res) => {
   } catch (error) {
     console.error("Error restocking:", error);
     res.status(500).json({ error: 'Failed to restock ingredient.' });
+  }
+});
+
+// --- POS ROUTE: GET ALL PRODUCTS ---
+app.get('/api/products', async (req, res) => {
+  try {
+    const snapshot = await db.collection('products').get();
+    const productsList = [];
+    
+    snapshot.forEach(doc => {
+      productsList.push({
+        id: doc.id,
+        name: doc.data().name
+      });
+    });
+
+    res.status(200).json(productsList);
+  } catch (error) {
+    console.error("Error fetching products:", error);
+    res.status(500).json({ error: 'Failed to fetch products.' });
   }
 });
 
