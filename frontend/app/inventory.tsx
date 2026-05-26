@@ -16,7 +16,7 @@ export default function Inventory() {
     try {
       setLoading(true);
       // Note: Change localhost to your IP address if testing on a physical phone!
-      const response = await fetch('http://localhost:5000/api/inventory');
+      const response = await fetch('http://192.168.254.109:5000/api/inventory');
       const data = await response.json();
 
       if (response.ok) {

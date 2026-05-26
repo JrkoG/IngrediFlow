@@ -43,7 +43,7 @@ const handleIngredientChange = (index: number, field: string, value: string) => 
     try {
       setStatusMessage('Saving product and ingredients...');
 
-      const response = await fetch('http://localhost:5000/api/products', {
+      const response = await fetch('http://192.168.254.109:5000/api/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

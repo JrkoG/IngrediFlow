@@ -21,7 +21,7 @@ export default function Restock() {
   const fetchInventory = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:5000/api/inventory');
+      const response = await fetch('http://192.168.254.109:5000/api/inventory');
       const data = await response.json();
       if (response.ok) setInventory(data);
     } catch (error) {
@@ -43,7 +43,7 @@ export default function Restock() {
 
     try {
       setStatusMessage('Updating database...');
-      const response = await fetch('http://localhost:5000/api/inventory/restock', {
+      const response = await fetch('http://192.168.254.109:5000/api/inventory/restock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

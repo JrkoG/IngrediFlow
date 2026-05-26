@@ -18,7 +18,7 @@ export default function POS() {
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:5000/api/products');
+      const response = await fetch('http://192.168.254.109:5000/api/products');
       const data = await response.json();
       
       if (response.ok) {
@@ -37,7 +37,7 @@ export default function POS() {
   const handleCheckout = async (productId: string, productName: string) => {
     try {
       setProcessing(true);
-      const response = await fetch('http://localhost:5000/api/sales', {
+      const response = await fetch('http://192.168.254.109:5000/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_id: productId }),
@@ -93,6 +93,7 @@ export default function POS() {
         <Link href="/admin" style={styles.linkText}>⚙️ Admin</Link>
         <Link href="/inventory" style={styles.linkText}>📦 Inventory</Link>
         <Link href="/restock" style={styles.linkText}>🚚 Restock</Link>
+        <Link href="/history" style={styles.linkText}>📜 History</Link>
       </View>
     </View>
   );

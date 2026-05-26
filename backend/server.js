@@ -21,54 +21,83 @@ app.get('/api/test', (req, res) => {
   res.status(200).json({ message: 'IngrediFlow Backend is running and connected to Firebase!' });
 });
 
-// --- CORE TRANSACTION ROUTE ---
+// --- UPDATED SALES ROUTE WITH HISTORICAL LOGGING ---
 app.post('/api/sales', async (req, res) => {
   try {
     const { product_id } = req.body;
-    console.log(`--- Processing Sale for Product: ${product_id} ---`);
+    console.log(`--- Processing Sale & Logging for Product: ${product_id} ---`);
 
     const productDoc = await db.collection('products').doc(product_id).get();
     if (!productDoc.exists) return res.status(404).json({ error: 'Product not found' });
 
-    const recipe = productDoc.data().recipe || [];
+    const productData = productDoc.data();
+    const recipe = productData.recipe || [];
     const batch = db.batch();
 
+    // 1. Inventory Deduction Loop
     for (const item of recipe) {
-      // 1. Skip if ID is missing or empty
-      if (!item.ingredient_id) {
-        console.log("⚠️ Skipping item: Missing ingredient_id");
-        continue;
-      }
+      if (!item.ingredient_id) continue;
 
-      // 2. Force quantity to a number and default to 0 if it's NaN
       const qtyNeeded = Number(item.quantity_needed) || 0;
-      
-      if (qtyNeeded <= 0) {
-        console.log(`⚠️ Skipping ${item.ingredient_id}: Quantity is 0 or NaN`);
-        continue;
-      }
+      if (qtyNeeded <= 0) continue;
 
       const ingRef = db.collection('ingredients').doc(item.ingredient_id);
       const ingDoc = await ingRef.get();
 
       if (ingDoc.exists) {
         const currentStock = Number(ingDoc.data().current_stock) || 0;
-        
         if (currentStock >= qtyNeeded) {
           batch.update(ingRef, { current_stock: currentStock - qtyNeeded });
-          console.log(`✅ Deducting ${qtyNeeded} from ${ingDoc.data().name}`);
         } else {
           return res.status(400).json({ error: `Not enough ${ingDoc.data().name}` });
         }
       }
     }
 
+    // 2. Log Transaction to Sales History Collection
+    const historyRef = db.collection('sales_history').doc();
+    batch.set(historyRef, {
+      product_id: product_id,
+      product_name: productData.name,
+      timestamp: admin.firestore.FieldValue.serverTimestamp() // Secure server-side time
+    });
+
     await batch.commit();
-    res.status(200).json({ message: 'Sale Successful!' });
+    res.status(200).json({ message: 'Sale processed and logged successfully!' });
 
   } catch (error) {
     console.error("CRITICAL ERROR IN SALES ROUTE:", error.message);
-    res.status(500).json({ error: 'Server crashed while processing sale.' });
+    res.status(500).json({ error: 'Server error processing transaction.' });
+  }
+});
+
+// --- NEW GET ROUTE: FETCH TRANSACTION LOGS ---
+app.get('/api/sales/history', async (req, res) => {
+  try {
+    // Fetches history sorting by latest timestamp first
+    const snapshot = await db.collection('sales_history').orderBy('timestamp', 'desc').get();
+    const historyList = [];
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      
+      // Cleanly parse the Firestore timestamp object to a readable string before sending
+      let readableTime = "Unknown Date";
+      if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+        readableTime = data.timestamp.toDate().toLocaleString();
+      }
+
+      historyList.push({
+        id: doc.id,
+        product_name: data.product_name,
+        timestamp: readableTime
+      });
+    });
+
+    res.status(200).json(historyList);
+  } catch (error) {
+    console.error("Error fetching history:", error);
+    res.status(500).json({ error: 'Failed to retrieve transaction history.' });
   }
 });
 
