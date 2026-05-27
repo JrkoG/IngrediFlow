@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, FlatList, TouchableOpacity, ActivityIndicator, TextInput } from 'react-native';
 import { Link } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons'; // Premium UI Icons
-import { Theme } from '../theme'; // Import your unified styling tokens
+import { Ionicons } from '@expo/vector-icons'; 
+import { Theme } from '../theme'; 
 
 interface Product {
   id: string;
@@ -15,11 +15,21 @@ export default function POSScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
 
+  // 🔢 Quantity States
+  const [quantity, setQuantity] = useState<number>(1);
+  const [quantityInput, setQuantityInput] = useState<string>('1');
+
   const IP_ADDRESS = '192.168.254.109';
 
   useEffect(() => {
     fetchProducts();
   }, []);
+
+  // Reset quantity counters when selecting a new product or deselecting
+  useEffect(() => {
+    setQuantity(1);
+    setQuantityInput('1');
+  }, [selectedProduct]);
 
   const fetchProducts = async () => {
     try {
@@ -33,6 +43,26 @@ export default function POSScreen() {
     }
   };
 
+  const handleManualQuantityChange = (text: string) => {
+    // Sanitize to permit only digits
+    const cleanText = text.replace(/[^0-9]/g, '');
+    setQuantityInput(cleanText);
+
+    const parsed = parseInt(cleanText, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      setQuantity(parsed);
+    }
+  };
+
+  const handleManualQuantityBlur = () => {
+    // Fallback security check if input left empty or zero
+    const parsed = parseInt(quantityInput, 10);
+    if (isNaN(parsed) || parsed <= 0) {
+      setQuantity(1);
+      setQuantityInput('1');
+    }
+  };
+
   const handleProcessSale = async () => {
     if (!selectedProduct) return;
     
@@ -40,11 +70,15 @@ export default function POSScreen() {
       const response = await fetch(`http://${IP_ADDRESS}:5000/api/sales`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: selectedProduct }),
+        // ⚡ UPDATED: Passing the exact quantity parameter downstream to your backend
+        body: JSON.stringify({ 
+          product_id: selectedProduct,
+          quantity: quantity 
+        }),
       });
 
       if (response.ok) {
-        alert("🎉 Sale Completed! Inventory deducted cleanly.");
+        alert(`🎉 Sale Completed! ${quantity}x item transaction committed successfully.`);
         setSelectedProduct(null);
       } else {
         const errData = await response.json();
@@ -82,7 +116,6 @@ export default function POSScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Upper Status Block Header */}
       <View style={styles.headerBlock}>
         <Text style={styles.appTitle}>IngrediFlow</Text>
         <Text style={styles.appSubTitle}>Dynamic Checkout & Material Sync Terminal</Text>
@@ -107,21 +140,66 @@ export default function POSScreen() {
         />
       )}
 
-      {/* Dynamic Master Control Drawer */}
+      {/* DYNAMIC QUANTITY CONTROL AND CHECKOUT DRAWER */}
       {selectedProduct && (
         <View style={styles.actionDrawer}>
-          <View style={styles.drawerInfo}>
-            <Ionicons name="cart" size={20} color={Theme.colors.textDark} />
-            <Text style={styles.drawerText}>1 Item Queued for Deduction</Text>
+          
+          {/* Row 1: Quantity Management Selectors */}
+          <View style={styles.quantityRow}>
+            <Text style={styles.quantityLabel}>Qty:</Text>
+            
+            {/* Quick Option Chips */}
+            <View style={styles.chipsContainer}>
+              {[1, 2, 3, 5].map((preset) => (
+                <TouchableOpacity
+                  key={preset}
+                  style={[styles.chip, quantity === preset && styles.activeChip]}
+                  onPress={() => {
+                    setQuantity(preset);
+                    setQuantityInput(preset.toString());
+                  }}
+                >
+                  <Text style={[styles.chipText, quantity === preset && styles.activeChipText]}>
+                    {preset}x
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Manual Typing Entry Input Box */}
+            <View style={styles.manualInputWrapper}>
+              <Ionicons name="create-outline" size={14} color={Theme.colors.textMuted} style={styles.inputIcon} />
+              <TextInput
+                style={styles.manualTextInput}
+                keyboardType="number-pad"
+                value={quantityInput}
+                onChangeText={handleManualQuantityChange}
+                onBlur={handleManualQuantityBlur}
+                selectTextOnFocus
+                maxLength={3}
+              />
+            </View>
           </View>
-          <TouchableOpacity style={styles.checkoutButton} onPress={handleProcessSale}>
-            <Text style={styles.checkoutButtonText}>Complete Order</Text>
-            <Ionicons name="arrow-forward-outline" size={18} color="#FFFFFF" />
-          </TouchableOpacity>
+
+          <View style={styles.drawerDivider} />
+
+          {/* Row 2: Confirmation & Transaction Submission */}
+          <View style={styles.drawerButtonRow}>
+            <View style={styles.drawerInfo}>
+              <Ionicons name="cart" size={20} color={Theme.colors.textDark} />
+              <Text style={styles.drawerText}>
+                {quantity} {quantity === 1 ? 'Unit' : 'Units'} Queued
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.checkoutButton} onPress={handleProcessSale}>
+              <Text style={styles.checkoutButtonText}>Complete Order</Text>
+              <Ionicons name="arrow-forward-outline" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
-      {/* Premium Foot Navigation System Matrix */}
+      {/* Premium Navigation Matrix Footer */}
       <View style={styles.navFooter}>
         <Link href="/inventory" style={styles.navTab} asChild>
           <TouchableOpacity style={styles.tabItem}>
@@ -159,7 +237,7 @@ const styles = StyleSheet.create({
   appSubTitle: { fontSize: 13, color: Theme.colors.textMuted, marginTop: 2 },
   loadingBox: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 10, color: Theme.colors.textMuted, fontSize: 14 },
-  gridContent: { paddingHorizontal: 16, paddingBottom: 120 },
+  gridContent: { paddingHorizontal: 16, paddingBottom: 190 }, // Extra breathing room for larger drawer
   rowSpacing: { justifyContent: 'space-between' },
   productCard: {
     backgroundColor: Theme.colors.surface,
@@ -192,6 +270,8 @@ const styles = StyleSheet.create({
   productPrice: { fontSize: 15, fontWeight: '700', color: Theme.colors.primary, marginTop: 4 },
   selectedPriceText: { color: 'rgba(255,255,255,0.9)' },
   emptyText: { textAlign: 'center', color: Theme.colors.textMuted, marginTop: 40 },
+  
+  // Upgraded Dual-Row Control Drawer Styles
   actionDrawer: {
     position: 'absolute',
     bottom: 95,
@@ -200,14 +280,79 @@ const styles = StyleSheet.create({
     backgroundColor: Theme.colors.surface,
     padding: 16,
     borderRadius: Theme.roundness.medium,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     borderWidth: 1,
     borderColor: Theme.colors.border,
     boxShadow: Theme.shadows.medium,
   },
-  drawerInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  quantityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  quantityLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Theme.colors.textDark,
+  },
+  chipsContainer: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  chip: {
+    backgroundColor: Theme.colors.background,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+  },
+  activeChip: {
+    backgroundColor: Theme.colors.primary,
+    borderColor: Theme.colors.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Theme.colors.textDark,
+  },
+  activeChipText: {
+    color: '#FFFFFF',
+  },
+  manualInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.background,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    borderRadius: 8,
+    width: 65,
+    height: 34,
+    paddingHorizontal: 6,
+  },
+  inputIcon: {
+    marginRight: 2,
+  },
+  manualTextInput: {
+    flex: 1,
+    height: '100%',
+    fontSize: 14,
+    fontWeight: '700',
+    color: Theme.colors.textDark,
+    textAlign: 'center',
+    padding: 0,
+  },
+  drawerDivider: {
+    height: 1,
+    backgroundColor: Theme.colors.border,
+    marginBottom: 12,
+  },
+  drawerButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  drawerInfo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   drawerText: { fontSize: 14, fontWeight: '600', color: Theme.colors.textDark },
   checkoutButton: {
     backgroundColor: Theme.colors.primary,
@@ -219,6 +364,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   checkoutButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  
   navFooter: {
     position: 'absolute',
     bottom: 20,
