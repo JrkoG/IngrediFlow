@@ -1,18 +1,27 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, FlatList, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, FlatList, TextInput, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
 import { Link } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Theme } from './theme';
 
-// Defining our TypeScript shape to keep the editor happy
-type Ingredient = { id: string, name: string, current_stock: number };
+interface Ingredient {
+  id: string;
+  name: string;
+  current_stock: number;
+  threshold: number;
+}
 
-export default function Restock() {
-  const [inventory, setInventory] = useState<Ingredient[]>([]);
+export default function RestockScreen() {
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   
-  // State for the form
-  const [selectedId, setSelectedId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
+  // 🔍 UI Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  // ⚡ Tracking input quantities by ingredient ID: { [id]: "quantity" }
+  const [quantities, setQuantities] = useState<{ [key: string]: string }>({});
+
+  const IP_ADDRESS = '192.168.254.109';
 
   useEffect(() => {
     fetchInventory();
@@ -20,124 +29,249 @@ export default function Restock() {
 
   const fetchInventory = async () => {
     try {
-      setLoading(true);
-      const response = await fetch('http://192.168.254.109:5000/api/inventory');
+      const response = await fetch(`http://${IP_ADDRESS}:5000/api/inventory`);
       const data = await response.json();
-      if (response.ok) setInventory(data);
+      if (response.ok) {
+        setIngredients(data);
+      }
     } catch (error) {
-      console.error("Network Error:", error);
+      console.error("Restock view data download failure:", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const handleRestock = async () => {
-    if (!selectedId) {
-      Alert.alert("Missing Info", "Please select an ingredient to restock.");
-      return;
-    }
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      Alert.alert("Invalid Amount", "Please enter a valid number.");
+  const handleInputChange = (id: string, value: string) => {
+    setQuantities(prev => ({ ...prev, [id]: value }));
+  };
+
+  const handleApplyRestock = async (id: string, currentStock: number) => {
+    const incrementStr = quantities[id];
+    const incrementAmount = parseInt(incrementStr, 10);
+
+    if (!incrementStr || isNaN(incrementAmount) || incrementAmount <= 0) {
+      alert("❌ Please enter a valid positive restocking quantity.");
       return;
     }
 
     try {
-      setStatusMessage('Updating database...');
-      const response = await fetch('http://192.168.254.109:5000/api/inventory/restock', {
-        method: 'POST',
+      // Assuming a generic utility PATCH endpoint to update specific properties
+      const response = await fetch(`http://${IP_ADDRESS}:5000/api/inventory/${id}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          ingredient_id: selectedId,
-          amount: amount
-        }),
+        body: JSON.stringify({ current_stock: currentStock + incrementAmount }),
       });
 
-      const data = await response.json();
-
       if (response.ok) {
-        setStatusMessage(data.message);
-        Alert.alert("Success!", data.message);
-        setAmount(''); // Clear the input
-        fetchInventory(); // Refresh the list to show the new stock!
+        alert("💚 Stock levels adjusted successfully!");
+        setQuantities(prev => ({ ...prev, [id]: '' })); // Clear input field
+        fetchInventory(); // Live UI sync
       } else {
-        setStatusMessage("Error: " + data.error);
-        Alert.alert("Failed", data.error);
+        alert("❌ Failed to commit updated stock parameters to server.");
       }
     } catch (error) {
-      console.error(error);
-      setStatusMessage("Network Error: Could not reach the server.");
+      alert("💥 Server connectivity failure. Check your backend status terminal.");
     }
   };
 
-  const renderIngredient = ({ item }: { item: Ingredient }) => {
-    const isSelected = item.id === selectedId;
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchInventory();
+  };
+
+  // 🛡️ Engine: Real-time search query modifier matching against material strings
+  const filteredIngredients = ingredients.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const renderRestockItem = ({ item }: { item: Ingredient }) => {
+    const isLow = item.current_stock <= item.threshold;
+
     return (
-      <TouchableOpacity 
-        style={[styles.itemCard, isSelected && styles.selectedCard]} 
-        onPress={() => setSelectedId(item.id)}
-      >
-        <Text style={[styles.itemName, isSelected && styles.selectedText]}>{item.name}</Text>
-        <Text style={[styles.itemStock, isSelected && styles.selectedText]}>Current: {item.current_stock}</Text>
-      </TouchableOpacity>
+      <View style={[styles.restockCard, isLow && styles.lowStockBorder]}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.itemName}>{item.name}</Text>
+          <View style={[styles.miniBadge, { backgroundColor: isLow ? Theme.colors.warningBg : Theme.colors.successBg }]}>
+            <Text style={[styles.miniBadgeText, { color: isLow ? Theme.colors.warning : Theme.colors.success }]}>
+              {item.current_stock} units left
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.actionRow}>
+          <TextInput
+            style={styles.quantityInput}
+            placeholder="+ Add Amount"
+            placeholderTextColor={Theme.colors.textMuted}
+            keyboardType="number-pad"
+            value={quantities[item.id] || ''}
+            onChangeText={(val) => handleInputChange(item.id, val)}
+          />
+          <TouchableOpacity 
+            style={styles.applyButton} 
+            onPress={() => handleApplyRestock(item.id, item.current_stock)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="add-circle" size={16} color="#FFFFFF" />
+            <Text style={styles.applyButtonText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Restock Inventory</Text>
-
-      <View style={styles.formCard}>
-        <Text style={styles.label}>1. Select an Ingredient below</Text>
-        
-        <View style={styles.listContainer}>
-          {loading ? (
-            <ActivityIndicator size="small" color="#007AFF" />
-          ) : (
-            <FlatList 
-              data={inventory}
-              keyExtractor={(item) => item.id}
-              renderItem={renderIngredient}
-              horizontal={true} // Makes it a neat scrolling row
-              showsHorizontalScrollIndicator={false}
-            />
-          )}
-        </View>
-
-        <Text style={styles.label}>2. Amount to Add</Text>
-        <TextInput 
-          style={styles.input} 
-          placeholder="e.g., 500" 
-          value={amount}
-          onChangeText={setAmount}
-          keyboardType="numeric"
-        />
-        
-        <TouchableOpacity style={styles.button} onPress={handleRestock}>
-          <Text style={styles.buttonText}>Add to Stock</Text>
-        </TouchableOpacity>
+      <View style={styles.headerBlock}>
+        <Text style={styles.headerTitle}>Supply Inbound</Text>
+        <Text style={styles.headerSubTitle}>Replenish line raw ingredients and update reserves</Text>
       </View>
 
-      <Text style={styles.status}>{statusMessage}</Text>
+      {/* 🔍 PREMIUM SEARCH COMPONENT */}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search-outline" size={18} color={Theme.colors.textMuted} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search materials (e.g., Milk, Sugar, Espresso)..."
+          placeholderTextColor={Theme.colors.textMuted}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          clearButtonMode="while-editing"
+        />
+        {searchQuery !== '' && (
+          <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <Ionicons name="close-circle" size={16} color={Theme.colors.textMuted} style={{ marginRight: 10 }} />
+          </TouchableOpacity>
+        )}
+      </View>
 
-      <Link href="/inventory" style={styles.linkText}>← Back to Live Inventory</Link>
+      {loading ? (
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={Theme.colors.primary} />
+        </View>
+      ) : (
+        <FlatList
+          data={filteredIngredients}
+          keyExtractor={(item) => item.id}
+          renderItem={renderRestockItem}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Theme.colors.primary]} />
+          }
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>
+              {searchQuery ? "No ingredients match your criteria." : "No baseline inventory data logged."}
+            </Text>
+          }
+        />
+      )}
+
+      {/* Synchronized Master Tab Bar */}
+      <View style={styles.navFooter}>
+        <Link href="/" asChild>
+          <TouchableOpacity style={styles.tabItem}>
+            <Ionicons name="apps-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.tabText}>POS Home</Text>
+          </TouchableOpacity>
+        </Link>
+        <Link href="/inventory" asChild>
+          <TouchableOpacity style={styles.tabItem}>
+            <Ionicons name="cube-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.tabText}>Inventory</Text>
+          </TouchableOpacity>
+        </Link>
+        <Link href="/history" asChild>
+          <TouchableOpacity style={styles.tabItem}>
+            <Ionicons name="receipt-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.tabText}>Ledger</Text>
+          </TouchableOpacity>
+        </Link>
+        <Link href="/analytics" asChild>
+          <TouchableOpacity style={styles.tabItem}>
+            <Ionicons name="bar-chart-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.tabText}>Analytics</Text>
+          </TouchableOpacity>
+        </Link>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5', alignItems: 'center', padding: 20, paddingTop: 40 },
-  header: { fontSize: 28, fontWeight: 'bold', color: '#333', marginBottom: 20 },
-  formCard: { backgroundColor: 'white', padding: 20, borderRadius: 15, width: '100%', maxWidth: 400, elevation: 3 },
-  label: { fontSize: 14, fontWeight: '600', color: '#555', marginBottom: 10, marginTop: 10 },
-  listContainer: { height: 70, marginBottom: 15 },
-  itemCard: { borderWidth: 1, borderColor: '#CCC', borderRadius: 8, padding: 10, marginRight: 10, justifyContent: 'center', minWidth: 120 },
-  selectedCard: { backgroundColor: '#007AFF', borderColor: '#007AFF' },
-  itemName: { fontSize: 16, fontWeight: 'bold', color: '#333', textAlign: 'center' },
-  itemStock: { fontSize: 12, color: '#666', textAlign: 'center', marginTop: 4 },
-  selectedText: { color: 'white' },
-  input: { borderWidth: 1, borderColor: '#CCC', borderRadius: 8, padding: 12, marginBottom: 20, fontSize: 16 },
-  button: { backgroundColor: '#28a745', paddingVertical: 14, borderRadius: 8, alignItems: 'center' },
-  buttonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
-  status: { marginTop: 20, fontSize: 14, color: '#888', textAlign: 'center' },
-  linkText: { marginTop: 30, fontSize: 16, color: '#007AFF', fontWeight: '600' }
+  container: { flex: 1, backgroundColor: Theme.colors.background, paddingTop: 60 },
+  headerBlock: { paddingHorizontal: 20, marginBottom: 15 },
+  headerTitle: { fontSize: 32, fontWeight: '800', color: Theme.colors.textDark, letterSpacing: -0.5 },
+  headerSubTitle: { fontSize: 13, color: Theme.colors.textMuted, marginTop: 2 },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Theme.colors.surface,
+    marginHorizontal: 16,
+    borderRadius: Theme.roundness.medium,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    marginBottom: 16,
+    boxShadow: Theme.shadows.light,
+  },
+  searchIcon: { paddingLeft: 14, paddingRight: 8 },
+  searchInput: { flex: 1, height: 46, fontSize: 14, color: Theme.colors.textDark, fontWeight: '500' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  listContent: { paddingHorizontal: 16, paddingBottom: 100 },
+  restockCard: {
+    backgroundColor: Theme.colors.surface,
+    padding: 16,
+    borderRadius: Theme.roundness.medium,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    boxShadow: Theme.shadows.light
+  },
+  lowStockBorder: { borderColor: 'rgba(245, 158, 11, 0.4)' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  itemName: { fontSize: 16, fontWeight: '700', color: Theme.colors.textDark },
+  miniBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  miniBadgeText: { fontSize: 11, fontWeight: '700' },
+  actionRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  quantityInput: {
+    flex: 1,
+    backgroundColor: Theme.colors.background,
+    height: 42,
+    borderRadius: Theme.roundness.small,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Theme.colors.textDark
+  },
+  applyButton: {
+    backgroundColor: Theme.colors.primary,
+    height: 42,
+    paddingHorizontal: 16,
+    borderRadius: Theme.roundness.small,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  applyButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  emptyText: { textAlign: 'center', color: Theme.colors.textMuted, marginTop: 40 },
+  navFooter: {
+    position: 'absolute',
+    bottom: 20,
+    left: 16,
+    right: 16,
+    height: 64,
+    backgroundColor: Theme.colors.surface,
+    borderRadius: Theme.roundness.large,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    boxShadow: Theme.shadows.medium,
+  },
+  tabItem: { alignItems: 'center', justifyContent: 'center', width: 65 },
+  tabText: { fontSize: 11, color: Theme.colors.textMuted, fontWeight: '500', marginTop: 3 },
 });
