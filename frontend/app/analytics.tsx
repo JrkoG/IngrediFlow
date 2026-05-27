@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { Link } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { Theme } from './theme';
 
 interface Ingredient {
   id: string;
@@ -18,12 +20,9 @@ interface SaleLog {
 export default function AnalyticsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  
-  // Data States
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [salesHistory, setSalesHistory] = useState<SaleLog[]>([]);
 
-  // Analytics Metrics States
   const [metrics, setMetrics] = useState({
     totalIngredients: 0,
     criticalShortages: 0,
@@ -40,7 +39,6 @@ export default function AnalyticsScreen() {
 
   const loadDashboardData = async () => {
     try {
-      // 1. Concurrent fetching from both verified operational endpoints
       const [invResponse, salesResponse] = await Promise.all([
         fetch(`http://${IP_ADDRESS}:5000/api/inventory`),
         fetch(`http://${IP_ADDRESS}:5000/api/sales/history`)
@@ -55,7 +53,7 @@ export default function AnalyticsScreen() {
         calculateMetrics(invData, salesData);
       }
     } catch (error) {
-      console.error("Analytics aggregation engine failure:", error);
+      console.error("Analytics engine aggregation failure:", error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -63,19 +61,11 @@ export default function AnalyticsScreen() {
   };
 
   const calculateMetrics = (currentInv: Ingredient[], currentSales: SaleLog[]) => {
-    // A. Inventory Metrics
     const totalIngredients = currentInv.length;
     const criticalShortages = currentInv.filter(item => item.current_stock <= item.threshold).length;
-    
-    // B. Stock Health Score Calculation
-    const healthScore = totalIngredients > 0 
-      ? Math.round(((totalIngredients - criticalShortages) / totalIngredients) * 100) 
-      : 100;
-
-    // C. Sales Volume Metrics
+    const healthScore = totalIngredients > 0 ? Math.round(((totalIngredients - criticalShortages) / totalIngredients) * 100) : 100;
     const totalSalesCount = currentSales.length;
 
-    // D. Popular Product Mode Calculation
     const productCounts: { [key: string]: number } = {};
     let topProduct = 'No Sales Yet';
     let maxCount = 0;
@@ -88,13 +78,7 @@ export default function AnalyticsScreen() {
       }
     });
 
-    setMetrics({
-      totalIngredients,
-      criticalShortages,
-      healthScore,
-      totalSalesCount,
-      topProduct
-    });
+    setMetrics({ totalIngredients, criticalShortages, healthScore, totalSalesCount, topProduct });
   };
 
   const onRefresh = () => {
@@ -105,114 +89,140 @@ export default function AnalyticsScreen() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Compiling business data charts...</Text>
+        <ActivityIndicator size="large" color={Theme.colors.primary} />
       </View>
     );
   }
 
-  // Determine color matching for system status card
   const getHealthColor = (score: number) => {
-    if (score >= 80) return '#198754';
-    if (score >= 50) return '#FD7E14';
-    return '#DC3545';
+    if (score >= 80) return Theme.colors.success;
+    if (score >= 50) return Theme.colors.warning;
+    return Theme.colors.danger;
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Business Analytics</Text>
-      <Text style={styles.subHeader}>Real-time system health and operational metrics</Text>
+      <View style={styles.headerBlock}>
+        <Text style={styles.headerTitle}>System Metrics</Text>
+        <Text style={styles.headerSubTitle}>Real-time system data health analytics dashboard</Text>
+      </View>
 
       <ScrollView 
         contentContainerStyle={styles.scrollContainer}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#007AFF']} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[Theme.colors.primary]} />}
       >
-        {/* BIG STATUS CARD: HEALTH SCORE */}
         <View style={[styles.largeCard, { backgroundColor: getHealthColor(metrics.healthScore) }]}>
-          <Text style={styles.largeCardTitle}>Inventory Health Score</Text>
+          <Text style={styles.largeCardTitle}>Aggregate Stock Health</Text>
           <Text style={styles.largeCardMetric}>{metrics.healthScore}%</Text>
           <Text style={styles.largeCardDesc}>
             {metrics.healthScore === 100 
-              ? 'All supply streams stable. Zero operational deficits detected.' 
-              : `System running at limited capacity. Replenish critical lines.`}
+              ? 'Operational logistics fully stable. No deficits cataloged.' 
+              : 'Supply deficits identified. Replenishment tasks recommended.'}
           </Text>
         </View>
 
-        {/* 2x2 GRID METRICS MARGINS */}
         <View style={styles.grid}>
           <View style={styles.miniCard}>
+            <Ionicons name="cash-outline" size={20} color={Theme.colors.primary} />
             <Text style={styles.cardLabel}>Sales Volume</Text>
             <Text style={styles.cardMetricValue}>{metrics.totalSalesCount}</Text>
-            <Text style={styles.cardSubText}>Completed checkouts</Text>
           </View>
 
           <View style={styles.miniCard}>
+            <Ionicons name="trophy-outline" size={20} color="#F59E0B" />
             <Text style={styles.cardLabel}>Top Product</Text>
-            <Text style={[styles.cardMetricValue, { fontSize: 16, marginTop: 12 }]} numberOfLines={2}>
-              {metrics.topProduct}
-            </Text>
-            <Text style={styles.cardSubText}>Highest movement volume</Text>
+            <Text style={styles.topProductText} numberOfLines={2}>{metrics.topProduct}</Text>
           </View>
         </View>
 
         <View style={styles.grid}>
           <View style={styles.miniCard}>
-            <Text style={styles.cardLabel}>Deficit Alerts</Text>
-            <Text style={[styles.cardMetricValue, { color: metrics.criticalShortages > 0 ? '#DC3545' : '#198754' }]}>
+            <Ionicons name="warning-outline" size={20} color={metrics.criticalShortages > 0 ? Theme.colors.danger : Theme.colors.success} />
+            <Text style={styles.cardLabel}>Deficits</Text>
+            <Text style={[styles.cardMetricValue, { color: metrics.criticalShortages > 0 ? Theme.colors.danger : Theme.colors.success }]}>
               {metrics.criticalShortages}
             </Text>
-            <Text style={styles.cardSubText}>Below safety limit</Text>
           </View>
 
           <View style={styles.miniCard}>
-            <Text style={styles.cardLabel}>Tracked Materials</Text>
+            <Ionicons name="layers-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.cardLabel}>SKU Items</Text>
             <Text style={styles.cardMetricValue}>{metrics.totalIngredients}</Text>
-            <Text style={styles.cardSubText}>Active ingredients in system</Text>
           </View>
         </View>
       </ScrollView>
 
-      {/* Footer System Navigation */}
-      <View style={styles.footerNav}>
-        <Link href="/" style={styles.navLink}>🖥️ POS Home</Link>
-        <Link href="/inventory" style={styles.navLink}>📦 Stock View</Link>
-        <Link href="/history" style={styles.navLink}>📜 Ledger</Link>
+      {/* Synchronized Master Tab Bar */}
+      <View style={styles.navFooter}>
+        <Link href="/" asChild>
+          <TouchableOpacity style={styles.tabItem}>
+            <Ionicons name="apps-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.tabText}>POS Home</Text>
+          </TouchableOpacity>
+        </Link>
+        <Link href="/inventory" asChild>
+          <TouchableOpacity style={styles.tabItem}>
+            <Ionicons name="cube-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.tabText}>Inventory</Text>
+          </TouchableOpacity>
+        </Link>
+        <Link href="/restock" asChild>
+          <TouchableOpacity style={styles.tabItem}>
+            <Ionicons name="refresh-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.tabText}>Restock</Text>
+          </TouchableOpacity>
+        </Link>
+        <Link href="/history" asChild>
+          <TouchableOpacity style={styles.tabItem}>
+            <Ionicons name="receipt-outline" size={20} color={Theme.colors.textMuted} />
+            <Text style={styles.tabText}>Ledger</Text>
+          </TouchableOpacity>
+        </Link>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F4F6F9', padding: 20, paddingTop: 50 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F4F6F9' },
-  loadingText: { marginTop: 12, fontSize: 14, color: '#6C757D', fontWeight: '500' },
-  header: { fontSize: 28, fontWeight: 'bold', color: '#212529', textAlign: 'center' },
-  subHeader: { fontSize: 13, color: '#6C757D', textAlign: 'center', marginBottom: 20, marginTop: 4 },
-  scrollContainer: { paddingBottom: 20 },
-  largeCard: { padding: 24, borderRadius: 16, marginBottom: 16, elevation: 2, boxShadow: '0px 4px 12px rgba(0,0,0,0.06)' },
-  largeCardTitle: { color: 'rgba(255,255,255,0.85)', fontSize: 14, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 },
-  largeCardMetric: { color: '#FFFFFF', fontSize: 48, fontWeight: '800', marginVertical: 4 },
-  largeCardDesc: { color: '#FFFFFF', fontSize: 13, opacity: 0.9, lineHeight: 18, marginTop: 4 },
+  container: { flex: 1, backgroundColor: Theme.colors.background, paddingTop: 60 },
+  headerBlock: { paddingHorizontal: 20, marginBottom: 15 },
+  headerTitle: { fontSize: 32, fontWeight: '800', color: Theme.colors.textDark, letterSpacing: -0.5 },
+  headerSubTitle: { fontSize: 13, color: Theme.colors.textMuted, marginTop: 2 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  scrollContainer: { paddingHorizontal: 16, paddingBottom: 100 },
+  largeCard: { padding: 20, borderRadius: Theme.roundness.medium, marginBottom: 16, boxShadow: Theme.shadows.medium },
+  largeCardTitle: { color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
+  largeCardMetric: { color: '#FFFFFF', fontSize: 44, fontWeight: '800', marginVertical: 2 },
+  largeCardDesc: { color: '#FFFFFF', fontSize: 13, opacity: 0.9 },
   grid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
   miniCard: { 
-    backgroundColor: '#FFFFFF', 
+    backgroundColor: Theme.colors.surface, 
     width: '48%', 
     padding: 16, 
-    borderRadius: 12, 
-    justifyContent: 'space-between',
-    minHeight: 120,
-    boxShadow: '0px 2px 6px rgba(0,0,0,0.02)'
+    borderRadius: Theme.roundness.medium, 
+    minHeight: 110,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    boxShadow: Theme.shadows.light
   },
-  cardLabel: { fontSize: 12, color: '#868E96', fontWeight: 'bold', textTransform: 'uppercase' },
-  cardMetricValue: { fontSize: 26, fontWeight: 'bold', color: '#212529', marginTop: 8 },
-  cardSubText: { fontSize: 11, color: '#ADB5BD', marginTop: 4 },
-  footerNav: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-around', 
-    backgroundColor: '#FFFFFF', 
-    padding: 16, 
-    borderRadius: 12,
-    boxShadow: '0px -2px 10px rgba(0,0,0,0.03)'
+  cardLabel: { fontSize: 11, color: Theme.colors.textMuted, fontWeight: '700', textTransform: 'uppercase', marginTop: 8 },
+  cardMetricValue: { fontSize: 24, fontWeight: '800', color: Theme.colors.textDark, marginTop: 2 },
+  topProductText: { fontSize: 15, fontWeight: '700', color: Theme.colors.textDark, marginTop: 4, lineHeight: 18 },
+  navFooter: {
+    position: 'absolute',
+    bottom: 20,
+    left: 16,
+    right: 16,
+    height: 64,
+    backgroundColor: Theme.colors.surface,
+    borderRadius: Theme.roundness.large,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    boxShadow: Theme.shadows.medium,
   },
-  navLink: { fontSize: 13, color: '#007AFF', fontWeight: 'bold' }
+  tabItem: { alignItems: 'center', justifyContent: 'center', width: 65 },
+  tabText: { fontSize: 11, color: Theme.colors.textMuted, fontWeight: '500', marginTop: 3 },
 });

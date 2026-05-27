@@ -159,21 +159,23 @@ app.post('/api/products', async (req, res) => {
 // --- ADMIN ROUTE: GET LIVE INVENTORY ---
 app.get('/api/inventory', async (req, res) => {
   try {
-    // 1. Ask Firebase for everything inside the 'ingredients' collection
-    const snapshot = await db.collection('ingredients').get();
+    console.log("📦 Inventory request received at /api/inventory");
     
-    // 2. Package it into a neat array
+    const snapshot = await db.collection('ingredients').get();
     const inventoryList = [];
+    
     snapshot.forEach(doc => {
+      // 🚨 FIX: Defining the 'data' variable properly here resolves the ReferenceError
+      const data = doc.data(); 
+      
       inventoryList.push({
         id: doc.id,
-        name: doc.data().name,
-        current_stock: doc.data().current_stock,
-        threshold: Number(data.threshold) || 20
+        name: data.name || "Unnamed Ingredient",
+        current_stock: Number(data.current_stock) || 0,
+        threshold: Number(data.threshold) || 20 
       });
     });
 
-    // 3. Send the array to the frontend
     res.status(200).json(inventoryList);
 
   } catch (error) {
