@@ -1,91 +1,164 @@
 import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, FlatList, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { Link } from 'expo-router';
 
-export default function Inventory() {
-  const [inventory, setInventory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  
+// TypeScript data contract
+interface Ingredient {
+  id: string;
+  name: string;
+  current_stock: number;
+  threshold?: number; // Optional custom threshold field from Firestore
+}
 
-  // useEffect runs this code automatically as soon as the screen opens
+export default function InventoryScreen() {
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // 📝 Using your explicit local PC IP Address
+  const BACKEND_URL = 'http://192.168.254.109:5000/api/inventory';
+
   useEffect(() => {
     fetchInventory();
   }, []);
 
   const fetchInventory = async () => {
     try {
-      setLoading(true);
-      // Note: Change localhost to your IP address if testing on a physical phone!
-      const response = await fetch('http://192.168.254.109:5000/api/inventory');
+      const response = await fetch(BACKEND_URL);
       const data = await response.json();
-
       if (response.ok) {
-        setInventory(data);
-      } else {
-        console.error("Error from server:", data.error);
+        // Sort inventory so that low/empty items float to the very top automatically
+        const sortedData = data.sort((a: Ingredient, b: Ingredient) => {
+          const limitA = a.threshold || 20;
+          const limitB = b.threshold || 20;
+          const isLowA = a.current_stock <= limitA ? 1 : 0;
+          const isLowB = b.current_stock <= limitB ? 1 : 0;
+          return isLowB - isLowA; 
+        });
+        setIngredients(sortedData);
       }
     } catch (error) {
-      console.error("Network Error:", error);
+      console.error("Network error pulling inventory database matrix:", error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  // This designs how a single ingredient row looks
-  const renderIngredient = ({ item }: { item: { id: string, name: string, current_stock: number } }) => (
-    <View style={styles.card}>
-      <Text style={styles.itemName}>{item.name}</Text>
-      <View style={styles.stockContainer}>
-        <Text style={styles.stockLabel}>Stock:</Text>
-        <Text style={[
-          styles.stockValue, 
-          item.current_stock <= 0 ? styles.outOfStock : styles.inStock
-        ]}>
-          {item.current_stock}
-        </Text>
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchInventory();
+  };
+
+  // Business logic calculator for safety thresholds
+  const getStockStatus = (stock: number, customThreshold?: number) => {
+    const safetyLimit = customThreshold || 20; // Default safety threshold fallback
+    if (stock <= 0) return { label: 'CRITICAL (OUT)', color: '#DC3545', bgColor: '#F8D7DA' };
+    if (stock <= safetyLimit) return { label: 'LOW STOCK', color: '#FD7E14', bgColor: '#FFF3CD' };
+    return { label: 'HEALTHY', color: '#198754', bgColor: '#D1E7DD' };
+  };
+
+  const renderIngredientCard = ({ item }: { item: Ingredient }) => {
+    const status = getStockStatus(item.current_stock, item.threshold);
+
+    return (
+      <View style={[styles.card, { borderColor: status.color }]}>
+        <View style={styles.cardLeft}>
+          <Text style={styles.ingredientName}>{item.name}</Text>
+          <Text style={styles.stockCount}>
+            Current Balance: <Text style={{ fontWeight: 'bold', color: '#333' }}>{item.current_stock}</Text> units
+          </Text>
+        </View>
+        <View style={[styles.badge, { backgroundColor: status.bgColor }]}>
+          <Text style={[styles.badgeText, { color: status.color }]}>{status.label}</Text>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
+
+  // Calculate quick metrics for an active warning banner at the top
+  const lowStockCount = ingredients.filter(i => i.current_stock <= (i.threshold || 20)).length;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Live Inventory</Text>
-      
-      <TouchableOpacity style={styles.refreshButton} onPress={fetchInventory}>
-        <Text style={styles.refreshText}>↻ Refresh Data</Text>
-      </TouchableOpacity>
+      <Text style={styles.header}>Inventory Control</Text>
+      <Text style={styles.subHeader}>Real-time stock monitoring & material tracking</Text>
+
+      {/* 🚨 DYNAMIC ALERT BANNER TRIGGER */}
+      {lowStockCount > 0 && (
+        <View style={styles.alertBanner}>
+          <Text style={styles.alertBannerText}>
+            ⚠️ Attention: {lowStockCount} ingredient(s) require immediate replenishment!
+          </Text>
+        </View>
+      )}
 
       {loading ? (
         <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 50 }} />
       ) : (
-        <FlatList 
-          data={inventory}
+        <FlatList
+          data={ingredients}
           keyExtractor={(item) => item.id}
-          renderItem={renderIngredient}
-          contentContainerStyle={styles.listContainer}
-          // Show a message if the database is completely empty
-          ListEmptyComponent={<Text style={styles.emptyText}>No ingredients found.</Text>}
+          renderItem={renderIngredientCard}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#007AFF']} />
+          }
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>No ingredients cataloged in system instance.</Text>
+          }
         />
       )}
 
-      <Link href="/" style={styles.linkText}>← Back to POS</Link>
+      {/* Footer Navigation */}
+      <View style={styles.footerNav}>
+        <Link href="/" style={styles.navLink}>🖥️ POS Home</Link>
+        <Link href="/restock" style={styles.navLink}>🚚 Restock Material</Link>
+        <Link href="/history" style={styles.navLink}>📜 Ledger</Link>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F5', padding: 20, paddingTop: 40 },
-  header: { fontSize: 28, fontWeight: 'bold', color: '#333', marginBottom: 15, textAlign: 'center' },
-  refreshButton: { backgroundColor: '#E5F1FF', padding: 10, borderRadius: 8, alignSelf: 'center', marginBottom: 20 },
-  refreshText: { color: '#007AFF', fontWeight: 'bold' },
-  listContainer: { paddingBottom: 40 },
-  card: { backgroundColor: 'white', padding: 20, borderRadius: 12, marginBottom: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 2 },
-  itemName: { fontSize: 18, fontWeight: '600', color: '#333' },
-  stockContainer: { alignItems: 'flex-end' },
-  stockLabel: { fontSize: 12, color: '#888' },
-  stockValue: { fontSize: 20, fontWeight: 'bold' },
-  inStock: { color: '#28a745' }, // Green
-  outOfStock: { color: '#dc3545' }, // Red
-  emptyText: { textAlign: 'center', color: '#888', marginTop: 30, fontSize: 16 },
-  linkText: { marginTop: 20, fontSize: 16, color: '#007AFF', fontWeight: '600', textAlign: 'center' }
+  container: { flex: 1, backgroundColor: '#F8F9FA', padding: 20, paddingTop: 50 },
+  header: { fontSize: 28, fontWeight: 'bold', color: '#212529', textAlign: 'center' },
+  subHeader: { fontSize: 13, color: '#6C757D', textAlign: 'center', marginBottom: 15, marginTop: 4 },
+  alertBanner: {
+    backgroundColor: '#FFF3CD',
+    borderWidth: 1,
+    borderColor: '#FFEBA2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 15,
+    alignItems: 'center'
+  },
+  alertBannerText: { color: '#856404', fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  listContent: { paddingBottom: 30 },
+  card: { 
+    backgroundColor: '#FFFFFF', 
+    padding: 16, 
+    borderRadius: 12, 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    marginBottom: 12,
+    borderLeftWidth: 5, // Creates a solid vertical state line color indicator
+    boxShadow: '0px 2px 4px rgba(0,0,0,0.03)'
+  },
+  cardLeft: { flex: 1 },
+  ingredientName: { fontSize: 18, fontWeight: '600', color: '#343A40' },
+  stockCount: { fontSize: 13, color: '#6C757D', marginTop: 4 },
+  badge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 },
+  badgeText: { fontSize: 11, fontWeight: 'bold' },
+  emptyText: { textAlign: 'center', color: '#ADB5BD', marginTop: 40, fontSize: 15 },
+  footerNav: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-around', 
+    backgroundColor: '#FFFFFF', 
+    padding: 16, 
+    borderRadius: 12,
+    boxShadow: '0px -2px 10px rgba(0,0,0,0.03)'
+  },
+  navLink: { fontSize: 14, color: '#007AFF', fontWeight: 'bold' }
 });

@@ -168,7 +168,8 @@ app.get('/api/inventory', async (req, res) => {
       inventoryList.push({
         id: doc.id,
         name: doc.data().name,
-        current_stock: doc.data().current_stock
+        current_stock: doc.data().current_stock,
+        threshold: Number(data.threshold) || 20
       });
     });
 
