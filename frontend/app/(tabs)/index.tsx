@@ -90,10 +90,12 @@ export default function POS() {
 
       {/* Navigation Footer */}
       <View style={styles.navContainer}>
+        <Link href="/analytics" style={styles.linkText}>📊 Analytics</Link>
         <Link href="/admin" style={styles.linkText}>⚙️ Admin</Link>
         <Link href="/inventory" style={styles.linkText}>📦 Inventory</Link>
         <Link href="/restock" style={styles.linkText}>🚚 Restock</Link>
         <Link href="/history" style={styles.linkText}>📜 History</Link>
+        
       </View>
     </View>
   );
